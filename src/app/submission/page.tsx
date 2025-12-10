@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { motion } from 'framer-motion';
-import { CheckCircle, FileText, Calendar, CreditCard, MapPin, User as UserIcon, Phone, Download, LogOut } from 'lucide-react';
+import { CheckCircle, FileText, Calendar, CreditCard, MapPin, User as UserIcon, Phone, Download, LogOut, XCircle, AlertCircle, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -31,7 +31,7 @@ export default function SubmissionPage() {
                 const result = await getUserProgress(session.user.id);
 
                 if (result.success && result.user) {
-                    if (result.user.kyc_status !== 'completed') {
+                    if (result.user.kyc_status !== 'completed' && !result.user.is_rejected) {
                         // User hasn't completed KYC, redirect appropriately
                         const stepRoutes: Record<string, string> = {
                             'onboarding': '/onboarding',
@@ -65,6 +65,28 @@ export default function SubmissionPage() {
         router.push('/');
     };
 
+    const handleReattempt = async () => {
+        if (!userData?.supabase_uid) return;
+
+        try {
+            setLoading(true);
+            const { resetKYCRejection } = await import('../actions/authActions');
+            const result = await resetKYCRejection(userData.supabase_uid);
+
+            if (result.success) {
+                toast.success("Application reopened. Please update your details.");
+                router.push('/onboarding');
+            } else {
+                toast.error("Failed to reset application status");
+                setLoading(false);
+            }
+        } catch (error) {
+            console.error('Error resetting status:', error);
+            toast.error("Something went wrong");
+            setLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -96,39 +118,69 @@ export default function SubmissionPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="max-w-2xl w-full space-y-6"
             >
-                {/* Success Header */}
+                {/* Rejection or Success Header */}
                 <div className="text-center space-y-4">
                     <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-                        className="mx-auto w-20 h-20 bg-green-100 rounded-full flex items-center justify-center"
+                        className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${userData.is_rejected ? 'bg-red-100' : 'bg-green-100'
+                            }`}
                     >
-                        <CheckCircle className="w-12 h-12 text-green-600" />
+                        {userData.is_rejected ? (
+                            <XCircle className="w-12 h-12 text-red-600" />
+                        ) : (
+                            <CheckCircle className="w-12 h-12 text-green-600" />
+                        )}
                     </motion.div>
                     <div>
-                        <h1 className="text-3xl font-bold text-slate-900">KYC Completed!</h1>
-                        <p className="text-slate-600 mt-2">Your verification has been successfully submitted.</p>
+                        <h1 className="text-3xl font-bold text-slate-900">
+                            {userData.is_rejected ? 'Action Required' : 'KYC Completed!'}
+                        </h1>
+                        <p className="text-slate-600 mt-2">
+                            {userData.is_rejected
+                                ? 'Your verification application was returned.'
+                                : 'Your verification has been successfully submitted.'}
+                        </p>
                     </div>
                 </div>
 
-                {/* Reference ID Card */}
-                <Card className="border-2 border-green-200 bg-white shadow-xl">
-                    <CardContent className="p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-slate-600 mb-1">Reference ID</p>
-                                <p className="text-2xl font-bold text-slate-900">{userData.reference_id}</p>
+                {/* Rejection Reason or Reference ID */}
+                {userData.is_rejected ? (
+                    <Card className="border-2 border-red-200 bg-white shadow-xl">
+                        <CardHeader className="border-b bg-red-50/50 pb-3">
+                            <div className="flex items-center gap-2 text-red-700">
+                                <AlertCircle className="w-5 h-5" />
+                                <h3 className="font-semibold">Reason for Rejection</h3>
                             </div>
-                            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                                <FileText className="w-6 h-6 text-blue-600" />
+                        </CardHeader>
+                        <CardContent className="p-6">
+                            <p className="text-slate-700 font-medium">
+                                {userData.rejection_reason || 'Verification failed. Please ensure all documents are clear and valid.'}
+                            </p>
+                            <p className="text-sm text-slate-500 mt-4">
+                                Please review the reason above and re-submit your application with corrected details/documents.
+                            </p>
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <Card className="border-2 border-green-200 bg-white shadow-xl">
+                        <CardContent className="p-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm text-slate-600 mb-1">Reference ID</p>
+                                    <p className="text-2xl font-bold text-slate-900">{userData.reference_id}</p>
+                                </div>
+                                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                    <FileText className="w-6 h-6 text-blue-600" />
+                                </div>
                             </div>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-3">
-                            Save this reference ID for future correspondence
-                        </p>
-                    </CardContent>
-                </Card>
+                            <p className="text-xs text-slate-500 mt-3">
+                                Save this reference ID for future correspondence
+                            </p>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Submitted Information */}
                 <Card className="shadow-xl bg-white">
@@ -210,25 +262,37 @@ export default function SubmissionPage() {
                     </CardContent>
                 </Card>
 
-                {/* Status Note */}
-                <Card className="bg-blue-50 border-blue-200">
-                    <CardContent className="p-4">
-                        <p className="text-sm text-blue-900">
-                            <strong>Status:</strong> Your KYC verification is complete. You will be notified once it has been reviewed and approved.
-                        </p>
-                    </CardContent>
-                </Card>
+                {/* Status Note - Only show if not rejected (as rejected has its own card) */}
+                {!userData.is_rejected && (
+                    <Card className="bg-blue-50 border-blue-200">
+                        <CardContent className="p-4">
+                            <p className="text-sm text-blue-900">
+                                <strong>Status:</strong> Your KYC verification is complete. You will be notified once it has been reviewed and approved.
+                            </p>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Actions */}
                 <div className="flex gap-3">
-                    <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => window.print()}
-                    >
-                        <Download className="w-4 h-4 mr-2" />
-                        Print/Save
-                    </Button>
+                    {userData.is_rejected ? (
+                        <Button
+                            className="flex-1 bg-blue-600 hover:bg-blue-700"
+                            onClick={handleReattempt}
+                        >
+                            <RotateCcw className="w-4 h-4 mr-2" />
+                            Reattempt KYC
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => window.print()}
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            Print/Save
+                        </Button>
+                    )}
                     <Button
                         variant="outline"
                         className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"

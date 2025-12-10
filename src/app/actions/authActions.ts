@@ -89,6 +89,9 @@ export async function completeKYC(supabaseUid: string) {
                 reference_id: referenceId,
                 completed_at: new Date(),
                 updated_at: new Date(),
+                kyc_attempts: {
+                    increment: 1,
+                },
             },
         });
 
@@ -99,7 +102,7 @@ export async function completeKYC(supabaseUid: string) {
     }
 }
 
-export async function verifyLiveness(supabaseUid: string) {
+export async function verifyLiveness(supabaseUid: string, selfieUrl?: string) {
     try {
         const user = await prisma.user.update({
             where: {
@@ -109,12 +112,118 @@ export async function verifyLiveness(supabaseUid: string) {
                 liveness_verified: true,
                 kyc_step: 'summary',
                 updated_at: new Date(),
+                // Save the selfie URL if provided
+                ...(selfieUrl ? { selfie_image_url: selfieUrl } : {}),
             },
         });
 
         return { success: true, user };
     } catch (error) {
         console.error('Error verifying liveness:', error);
+        return { success: false, error: 'Database error' };
+    }
+}
+
+/**
+ * Increments the KYC attempt counter for a user
+ * Call this when a user submits their KYC application
+ */
+export async function incrementKYCAttempt(supabaseUid: string) {
+    try {
+        const user = await prisma.user.update({
+            where: {
+                supabase_uid: supabaseUid,
+            },
+            data: {
+                kyc_attempts: {
+                    increment: 1,
+                },
+                updated_at: new Date(),
+            },
+        });
+
+        return { success: true, user };
+    } catch (error) {
+        console.error('Error incrementing KYC attempt:', error);
+        return { success: false, error: 'Database error' };
+    }
+}
+
+/**
+ * Marks a user's KYC application as rejected
+ * @param supabaseUid The user's Supabase UID
+ * @param reason The reason for rejection
+ */
+export async function rejectKYC(supabaseUid: string, reason: string) {
+    try {
+        const user = await prisma.user.update({
+            where: {
+                supabase_uid: supabaseUid,
+            },
+            data: {
+                is_rejected: true,
+                rejection_reason: reason,
+                kyc_status: 'rejected',
+                updated_at: new Date(),
+            },
+        });
+
+        return { success: true, user };
+    } catch (error) {
+        console.error('Error rejecting KYC:', error);
+        return { success: false, error: 'Database error' };
+    }
+}
+
+/**
+ * Resets the rejection status and allows the user to try again
+ * @param supabaseUid The user's Supabase UID
+ */
+export async function resetKYCRejection(supabaseUid: string) {
+    try {
+        const user = await prisma.user.update({
+            where: {
+                supabase_uid: supabaseUid,
+            },
+            data: {
+                is_rejected: false,
+                rejection_reason: null,
+                kyc_status: 'pending',
+                updated_at: new Date(),
+            },
+        });
+
+        return { success: true, user };
+    } catch (error) {
+        console.error('Error resetting KYC rejection:', error);
+        return { success: false, error: 'Database error' };
+    }
+}
+
+/**
+ * Gets the current attempt count and rejection status for a user
+ */
+export async function getKYCAttemptStatus(supabaseUid: string) {
+    try {
+        const user = await prisma.user.findUnique({
+            where: {
+                supabase_uid: supabaseUid,
+            },
+            select: {
+                kyc_attempts: true,
+                is_rejected: true,
+                rejection_reason: true,
+                kyc_status: true,
+            },
+        });
+
+        if (!user) {
+            return { success: false, error: 'User not found' };
+        }
+
+        return { success: true, data: user };
+    } catch (error) {
+        console.error('Error getting KYC attempt status:', error);
         return { success: false, error: 'Database error' };
     }
 }

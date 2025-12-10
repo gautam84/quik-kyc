@@ -64,7 +64,7 @@ export default function DocumentGuidancePage() {
             await saveProgress(userId, {
                 kyc_step: 'identity_scan'
             });
-            router.push('/scan');
+            router.push('/scan/poi');
         } catch (error) {
             console.error(error);
             toast.error("Something went wrong");

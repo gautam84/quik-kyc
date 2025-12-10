@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardAction } from '@/components/ui/card';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle2, Edit, User, FileText, Home, Smartphone, ArrowRight } from 'lucide-react';
+import { Loader2, CheckCircle2, Edit, User, FileText, Home, Smartphone, ArrowRight, AlertTriangle } from 'lucide-react';
 import { KYCProgress } from '@/components/kyc-progress';
 
 interface UserData {
@@ -17,10 +17,15 @@ interface UserData {
     passport_photo_url: string | null;
     identity_doc_type: string | null;
     identity_doc_number: string | null;
+    identity_doc_front_url: string | null;
+    identity_doc_back_url: string | null;
     address_doc_type: string | null;
     address_doc_number: string | null;
+    address_doc_front_url: string | null;
+    address_doc_back_url: string | null;
     address_line: string | null;
     kyc_status: string;
+    liveness_verified: boolean;
 }
 
 export default function SummaryPage() {
@@ -46,10 +51,12 @@ export default function SummaryPage() {
 
                 // Get user data
                 const { getUserProgress } = await import('../actions/authActions');
+                const { calculateCompletedSteps } = await import('@/lib/kyc-progress-utils');
+
                 const result = await getUserProgress(session.user.id);
 
                 if (result.success && result.user) {
-                    setUserData(result.user);
+                    setUserData(result.user as any);
 
                     // Check if all required data is present
                     const user = result.user;
@@ -66,19 +73,7 @@ export default function SummaryPage() {
                     }
 
                     // Set completed steps based on user progress
-                    const steps = [];
-                    if (user.full_name && user.email && user.date_of_birth && user.passport_photo_url) {
-                        steps.push('basic_details');
-                    }
-                    if (user.identity_doc_type) {
-                        steps.push('identity_scan');
-                    }
-                    if (user.address_doc_type) {
-                        steps.push('address_scan');
-                    }
-                    if (user.liveness_verified) {
-                        steps.push('liveness');
-                    }
+                    const steps = calculateCompletedSteps(user);
                     setCompletedSteps(steps);
                 } else {
                     toast.error("Failed to load your data");
@@ -105,12 +100,9 @@ export default function SummaryPage() {
         setSubmitting(true);
 
         try {
-            const { saveProgress } = await import('../actions/authActions');
+            const { completeKYC } = await import('../actions/authActions');
 
-            const result = await saveProgress(userId, {
-                kyc_status: 'completed',
-                kyc_step: 'completed'
-            });
+            const result = await completeKYC(userId);
 
             if (result.success) {
                 toast.success("KYC submitted successfully!");
@@ -162,6 +154,24 @@ export default function SummaryPage() {
         return null;
     }
 
+    const hasPan = userData.identity_doc_type === 'pan' || userData.address_doc_type === 'pan';
+    const hasAadhaar = userData.identity_doc_type === 'aadhaar' || userData.address_doc_type === 'aadhaar';
+    const missingDocs: string[] = [];
+
+    if (!hasPan) missingDocs.push('PAN Card');
+    if (!hasAadhaar) missingDocs.push('Aadhaar Card');
+
+    // Debug logging
+    console.log('Submit button check:', {
+        identity_doc_type: userData.identity_doc_type,
+        address_doc_type: userData.address_doc_type,
+        liveness_verified: userData.liveness_verified,
+        hasPan,
+        hasAadhaar,
+        missingDocs,
+        buttonDisabled: !userData.liveness_verified || missingDocs.length > 0
+    });
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
             <div className="max-w-6xl mx-auto">
@@ -184,11 +194,11 @@ export default function SummaryPage() {
                             {/* Basic Details Section */}
                             <Card className="border-none shadow-xl mb-6">
                                 <CardHeader className="border-b bg-slate-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="flex items-center gap-2">
-                                            <User className="w-5 h-5 text-blue-600" />
-                                            Basic Details
-                                        </CardTitle>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <User className="w-5 h-5 text-blue-600" />
+                                        Basic Details
+                                    </CardTitle>
+                                    <CardAction>
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -198,7 +208,7 @@ export default function SummaryPage() {
                                             <Edit className="w-4 h-4 mr-1" />
                                             Edit
                                         </Button>
-                                    </div>
+                                    </CardAction>
                                 </CardHeader>
                                 <CardContent className="p-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -234,36 +244,68 @@ export default function SummaryPage() {
                             {/* Identity Document Section */}
                             <Card className="border-none shadow-xl mb-6">
                                 <CardHeader className="border-b bg-slate-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="flex items-center gap-2">
-                                            <FileText className="w-5 h-5 text-blue-600" />
-                                            Proof of Identity
-                                        </CardTitle>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <FileText className="w-5 h-5 text-blue-600" />
+                                        Proof of Identity
+                                    </CardTitle>
+                                    <CardAction>
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => router.push('/scan?type=identity')}
+                                            onClick={() => {
+                                                console.log('Navigating to identity scan...');
+                                                router.push('/scan/poi');
+                                            }}
                                             className="text-blue-600 hover:text-blue-700"
                                         >
                                             <Edit className="w-4 h-4 mr-1" />
                                             Edit
                                         </Button>
-                                    </div>
+                                    </CardAction>
                                 </CardHeader>
                                 <CardContent className="p-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
                                         <div>
                                             <p className="text-sm text-slate-500 mb-1">Document Type</p>
                                             <p className="text-base font-semibold text-slate-900">
                                                 {userData.identity_doc_type && getDocumentTypeLabel(userData.identity_doc_type)}
                                             </p>
                                         </div>
-                                        <div>
-                                            <p className="text-sm text-slate-500 mb-1">Document Number</p>
-                                            <p className="text-base font-semibold text-slate-900">
-                                                {userData.identity_doc_number || 'Not provided'}
-                                            </p>
-                                        </div>
+                                        {/* Display document images */}
+                                        {(userData.identity_doc_front_url || userData.identity_doc_back_url) && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {userData.identity_doc_front_url && (
+                                                    <div>
+                                                        <p className="text-sm text-slate-500 mb-2">Front Side</p>
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={userData.identity_doc_front_url}
+                                                            alt="Identity Document Front"
+                                                            className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                            onError={(e) => {
+                                                                console.error('Failed to load identity front image:', userData.identity_doc_front_url);
+                                                                e.currentTarget.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {userData.identity_doc_back_url && (
+                                                    <div>
+                                                        <p className="text-sm text-slate-500 mb-2">Back Side</p>
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={userData.identity_doc_back_url}
+                                                            alt="Identity Document Back"
+                                                            className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                            onError={(e) => {
+                                                                console.error('Failed to load identity back image:', userData.identity_doc_back_url);
+                                                                e.currentTarget.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -271,63 +313,158 @@ export default function SummaryPage() {
                             {/* Address Document Section */}
                             <Card className="border-none shadow-xl mb-6">
                                 <CardHeader className="border-b bg-slate-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Home className="w-5 h-5 text-blue-600" />
-                                            Proof of Address
-                                        </CardTitle>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Home className="w-5 h-5 text-blue-600" />
+                                        Proof of Address
+                                    </CardTitle>
+                                    <CardAction>
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => router.push('/scan?type=address')}
+                                            onClick={() => {
+                                                console.log('Navigating to address scan...');
+                                                router.push('/scan/poa');
+                                            }}
                                             className="text-blue-600 hover:text-blue-700"
                                         >
                                             <Edit className="w-4 h-4 mr-1" />
                                             Edit
                                         </Button>
-                                    </div>
+                                    </CardAction>
                                 </CardHeader>
                                 <CardContent className="p-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
                                         <div>
                                             <p className="text-sm text-slate-500 mb-1">Document Type</p>
                                             <p className="text-base font-semibold text-slate-900">
                                                 {userData.address_doc_type && getDocumentTypeLabel(userData.address_doc_type)}
                                             </p>
                                         </div>
-                                        <div>
-                                            <p className="text-sm text-slate-500 mb-1">Document Number</p>
-                                            <p className="text-base font-semibold text-slate-900">
-                                                {userData.address_doc_number || 'Not provided'}
-                                            </p>
-                                        </div>
-                                        {userData.address_line && (
-                                            <div className="md:col-span-2">
-                                                <p className="text-sm text-slate-500 mb-1">Address</p>
-                                                <p className="text-base font-semibold text-slate-900">
-                                                    {userData.address_line}
-                                                </p>
+                                        {/* Display document images */}
+                                        {(userData.address_doc_front_url || userData.address_doc_back_url) && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {userData.address_doc_front_url && (
+                                                    <div>
+                                                        <p className="text-sm text-slate-500 mb-2">Front Side</p>
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={userData.address_doc_front_url}
+                                                            alt="Address Document Front"
+                                                            className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                            onError={(e) => {
+                                                                console.error('Failed to load address front image:', userData.address_doc_front_url);
+                                                                e.currentTarget.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {userData.address_doc_back_url && (
+                                                    <div>
+                                                        <p className="text-sm text-slate-500 mb-2">Back Side</p>
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={userData.address_doc_back_url}
+                                                            alt="Address Document Back"
+                                                            className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                            onError={(e) => {
+                                                                console.error('Failed to load address back image:', userData.address_doc_back_url);
+                                                                e.currentTarget.style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
                                 </CardContent>
                             </Card>
 
+                            {/* Missing Documents Alert */}
+                            {missingDocs.length > 0 && (
+                                <Card className="border-2 border-orange-200 bg-orange-50/50 mb-6">
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="flex items-center gap-2 text-orange-800">
+                                            <AlertTriangle className="w-5 h-5" />
+                                            Action Required
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="p-6 pt-2">
+                                        <p className="text-sm text-orange-700 mb-4">
+                                            To complete your KYC, the following mandatory documents are missing:
+                                        </p>
+                                        <div className="space-y-3">
+                                            {!hasPan && (
+                                                <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-orange-100">
+                                                    <div className="flex items-center gap-3">
+                                                        <FileText className="w-5 h-5 text-slate-400" />
+                                                        <span className="font-medium text-slate-700">PAN Card</span>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => router.push('/other-docs?suggested=pan')}
+                                                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                                    >
+                                                        Upload PAN
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            {!hasAadhaar && (
+                                                <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-orange-100">
+                                                    <div className="flex items-center gap-3">
+                                                        <FileText className="w-5 h-5 text-slate-400" />
+                                                        <span className="font-medium text-slate-700">Aadhaar Card</span>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => router.push('/other-docs?suggested=aadhaar')}
+                                                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                                    >
+                                                        Upload Aadhaar
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             {/* Liveness Check Section */}
                             <Card className="border-none shadow-xl mb-6">
                                 <CardHeader className="border-b bg-slate-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Smartphone className="w-5 h-5 text-blue-600" />
-                                            Liveness Verification
-                                        </CardTitle>
-                                    </div>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Smartphone className="w-5 h-5 text-blue-600" />
+                                        Liveness Verification
+                                    </CardTitle>
+                                    {!userData.liveness_verified && (
+                                        <CardAction>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => router.push('/liveness')}
+                                                className="text-blue-600 hover:text-blue-700"
+                                            >
+                                                Start Check
+                                            </Button>
+                                        </CardAction>
+                                    )}
                                 </CardHeader>
                                 <CardContent className="p-6">
-                                    <div className="flex items-center gap-3 text-green-600">
-                                        <CheckCircle2 className="w-6 h-6" />
-                                        <p className="font-semibold">Liveness check completed successfully</p>
-                                    </div>
+                                    {userData.liveness_verified ? (
+                                        <div className="flex items-center gap-3 text-green-600">
+                                            <CheckCircle2 className="w-6 h-6" />
+                                            <p className="font-semibold">Liveness check completed successfully</p>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-3 text-orange-600">
+                                            <AlertTriangle className="w-6 h-6" />
+                                            <div>
+                                                <p className="font-semibold">Verification Pending</p>
+                                                <p className="text-sm opacity-90">Please complete the liveness check to proceed.</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </CardContent>
                             </Card>
 
@@ -355,32 +492,39 @@ export default function SummaryPage() {
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-3">
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => router.push('/basic-details')}
-                                            className="flex-1"
-                                        >
-                                            Review Again
-                                        </Button>
-                                        <Button
-                                            onClick={handleSubmit}
-                                            disabled={submitting}
-                                            className="flex-1 bg-blue-600 hover:bg-blue-700"
-                                            size="lg"
-                                        >
-                                            {submitting ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                                    Submitting...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Submit KYC Application
-                                                    <ArrowRight className="ml-2 h-5 w-5" />
-                                                </>
-                                            )}
-                                        </Button>
+                                    <div className="flex flex-col gap-3">
+                                        <div className="flex gap-3">
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => router.push('/basic-details')}
+                                                className="flex-1"
+                                            >
+                                                Review Again
+                                            </Button>
+                                            <Button
+                                                onClick={handleSubmit}
+                                                disabled={submitting || !userData.liveness_verified || missingDocs.length > 0}
+                                                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                size="lg"
+                                            >
+                                                {submitting ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                        Submitting...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Submit KYC Application
+                                                        <ArrowRight className="ml-2 h-5 w-5" />
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                        {(!userData.liveness_verified || missingDocs.length > 0) && (
+                                            <p className="text-center text-sm text-red-500 font-medium">
+                                                Please complete all required steps (Documents & Liveness) to submit.
+                                            </p>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>

@@ -1,19 +1,22 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, CheckCircle2 } from 'lucide-react';
+import { Loader2, CheckCircle2, Camera } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
+import { Button } from '@/components/ui/button';
 
 export default function LivenessPage() {
     const webcamRef = useRef<Webcam>(null);
-    const [step, setStep] = useState<'position' | 'blink' | 'verifying' | 'success'>('position');
+    const [step, setStep] = useState<'position' | 'blink' | 'capture' | 'processing' | 'verifying' | 'success'>('position');
     const [progress, setProgress] = useState(0);
     const [userId, setUserId] = useState<string | null>(null);
+    const [capturedImage, setCapturedImage] = useState<string | null>(null);
+    const [isReady, setIsReady] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -43,9 +46,16 @@ export default function LivenessPage() {
                     }
 
                     // If user hasn't uploaded documents yet, redirect back
-                    if (!user.identity_doc_type || !user.address_doc_type) {
-                        toast.error("Please complete document upload first");
-                        router.push('/scan');
+                    // If user hasn't uploaded documents yet, redirect back
+                    if (!user.identity_doc_type) {
+                        toast.error("Please complete identity document upload first");
+                        router.push('/scan/poi');
+                        return;
+                    }
+
+                    if (!user.address_doc_type) {
+                        toast.error("Please complete address document upload first");
+                        router.push('/scan/poa');
                         return;
                     }
                 }
@@ -81,26 +91,50 @@ export default function LivenessPage() {
             return () => clearInterval(interval);
         } else if (step === 'verifying') {
             timer = setTimeout(async () => {
-                // Verify Liveness in database
-                if (userId) {
+                if (userId && webcamRef.current) {
                     try {
+                        const screenshot = webcamRef.current.getScreenshot();
+                        if (!screenshot) {
+                            throw new Error("Failed to capture image");
+                        }
+
+                        // Upload to Supabase Storage
+                        const res = await fetch(screenshot);
+                        const blob = await res.blob();
+                        const file = new File([blob], `liveness_${userId}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+                        const fileName = `liveness-checks/liveness_${userId}_${Date.now()}.jpg`;
+                        const { error: uploadError } = await supabase.storage
+                            .from('kyc-documents')
+                            .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+                        if (uploadError) throw uploadError;
+
+                        const { data: { publicUrl } } = supabase.storage
+                            .from('kyc-documents')
+                            .getPublicUrl(fileName);
+
+                        // Verify Liveness with image URL
                         const { verifyLiveness } = await import('../actions/authActions');
-                        const result = await verifyLiveness(userId);
+                        const result = await verifyLiveness(userId, publicUrl);
 
                         if (result.success) {
                             setStep('success');
                             toast.success("Liveness verified successfully!");
                         } else {
                             toast.error("Failed to verify liveness. Please try again.");
+                            setStep('position'); // Retry
                         }
                     } catch (error) {
                         console.error('Error verifying liveness:', error);
-                        toast.error("Something went wrong. Please try again.");
+                        toast.error("Liveness check failed. Please try again.");
+                        setStep('position'); // Retry
                     }
                 } else {
+                    // Fallback for demo/no-user (should mostly not happen in flow)
                     setStep('success');
                 }
-            }, 2000);
+            }, 500); // Small delay to allow UI to show "Processing"
         } else if (step === 'success') {
             timer = setTimeout(() => {
                 router.push('/summary');

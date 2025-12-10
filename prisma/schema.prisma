@@ -22,6 +22,9 @@ model User {
   // KYC Status and Progress
   kyc_status String @default("pending") @db.VarChar(50)
   kyc_step   String @default("onboarding") @db.VarChar(50)
+  kyc_attempts Int @default(0)
+  is_rejected Boolean @default(false)
+  rejection_reason String? @db.Text
 
   // Personal Information
   full_name     String? @db.VarChar(255)
@@ -47,6 +50,12 @@ model User {
   // Liveness Check
   selfie_image_url   String? @db.Text
   liveness_verified  Boolean @default(false)
+
+  // Additional Documents
+  pan_card_front_url      String? @db.Text
+  pan_card_back_url       String? @db.Text
+  aadhaar_card_front_url  String? @db.Text
+  aadhaar_card_back_url   String? @db.Text
 
   // Reference ID for completed KYC
   reference_id String? @unique @db.VarChar(50)

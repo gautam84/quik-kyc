@@ -116,7 +116,7 @@ function detectDocumentType(text: string): string | null {
     if (
         text.includes('AADHAAR') ||
         text.includes('GOVERNMENT OF INDIA') && text.match(/\d{4}\s*\d{4}\s*\d{4}/) ||
-        text.includes('UNIQUE IDENTIFICATION')
+        text.includes('VID')
     ) {
         return 'aadhaar';
     }

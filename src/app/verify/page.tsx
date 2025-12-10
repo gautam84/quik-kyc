@@ -125,8 +125,8 @@ export default function VerifyPage() {
                         } else if (user.kyc_step && user.kyc_step !== 'onboarding') {
                             // User has started but not completed - resume from where they left
                             const stepRoutes: Record<string, string> = {
-                                'identity_scan': '/scan',
-                                'address_scan': '/scan',
+                                'identity_scan': '/scan/poi',
+                                'address_scan': '/scan/poa',
                                 'liveness': '/liveness',
                             };
                             router.push(stepRoutes[user.kyc_step] || '/onboarding');

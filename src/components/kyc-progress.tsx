@@ -51,7 +51,7 @@ export function KYCProgress({
                 : currentStep === 'identity_scan'
                     ? 'current'
                     : 'upcoming',
-            route: '/scan?type=identity'
+            route: '/scan/poi'
         },
         {
             id: 'address_scan',
@@ -62,7 +62,7 @@ export function KYCProgress({
                 : currentStep === 'address_scan'
                     ? 'current'
                     : 'upcoming',
-            route: '/scan?type=address'
+            route: '/scan/poa'
         },
         {
             id: 'liveness',
@@ -100,8 +100,14 @@ export function KYCProgress({
         }
     };
 
-    const handleReview = (step: Step) => {
-        if (step.status === 'completed' && step.route) {
+    const handleReview = (step: Step, index: number) => {
+        // Allow navigation if:
+        // 1. The step is completed
+        // 2. The step is current
+        // 3. The previous step is completed (meaning this is the next logical step)
+        const isPreviousCompleted = index === 0 || steps[index - 1].status === 'completed';
+
+        if ((step.status === 'completed' || step.status === 'current' || isPreviousCompleted) && step.route) {
             router.push(step.route);
         }
     };
@@ -125,6 +131,7 @@ export function KYCProgress({
                 {steps.map((step, index) => {
                     const isCompleted = step.status === 'completed';
                     const isCurrent = step.status === 'current';
+                    const isAccessible = isCompleted || isCurrent || (index > 0 && steps[index - 1].status === 'completed') || index === 0;
 
                     return (
                         <div key={step.id}>
@@ -136,16 +143,20 @@ export function KYCProgress({
                                     ? 'bg-blue-50 border-2 border-blue-500'
                                     : isCompleted
                                         ? 'bg-green-50 border border-green-200 cursor-pointer hover:bg-green-100'
-                                        : 'bg-slate-50 border border-slate-200'
+                                        : isAccessible
+                                            ? 'bg-white border border-slate-200 cursor-pointer hover:border-blue-300 hover:shadow-sm'
+                                            : 'bg-slate-50 border border-slate-200 opacity-60 cursor-not-allowed'
                                     }`}
-                                onClick={() => handleReview(step)}
+                                onClick={() => isAccessible && handleReview(step, index)}
                             >
                                 {/* Step Icon */}
                                 <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-semibold ${isCompleted
                                     ? 'bg-green-500 text-white'
                                     : isCurrent
                                         ? 'bg-blue-500 text-white'
-                                        : 'bg-slate-200 text-slate-500'
+                                        : isAccessible
+                                            ? 'bg-white border-2 border-slate-300 text-slate-500'
+                                            : 'bg-slate-200 text-slate-500'
                                     }`}>
                                     {isCompleted ? (
                                         <Check className="w-5 h-5" />
@@ -161,7 +172,9 @@ export function KYCProgress({
                                             ? 'text-blue-900'
                                             : isCompleted
                                                 ? 'text-green-900'
-                                                : 'text-slate-500'
+                                                : isAccessible
+                                                    ? 'text-slate-900'
+                                                    : 'text-slate-500'
                                             }`}>
                                             {step.label}
                                         </h4>
@@ -170,12 +183,17 @@ export function KYCProgress({
                                                 className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-1"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleReview(step);
+                                                    handleReview(step, index);
                                                 }}
                                             >
                                                 <Eye className="w-3 h-3" />
                                                 Review
                                             </button>
+                                        )}
+                                        {!isCompleted && isAccessible && !isCurrent && (
+                                            <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                                                Start
+                                            </span>
                                         )}
                                     </div>
                                     <p className={`text-xs ${isCurrent

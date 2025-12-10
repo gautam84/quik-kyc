@@ -43,6 +43,9 @@ export default function BasicDetailsPage() {
 
                 // Get user progress
                 const { getUserProgress } = await import('../actions/authActions');
+                // Dynamic import to avoid circular dependency if any, though utils is safe
+                const { calculateCompletedSteps } = await import('@/lib/kyc-progress-utils'); // Import strictly typed function
+
                 const result = await getUserProgress(session.user.id);
 
                 if (result.success && result.user) {
@@ -67,20 +70,7 @@ export default function BasicDetailsPage() {
                     }
 
                     // Set completed steps based on user progress
-                    const steps = [];
-                    if (user.full_name && user.email && user.date_of_birth && user.passport_photo_url) {
-                        steps.push('basic_details');
-                    }
-                    if (user.kyc_step === 'document_guidance' || user.kyc_step === 'identity_scan' ||
-                        user.kyc_step === 'address_scan' || user.kyc_step === 'summary') {
-                        steps.push('basic_details', 'document_guidance');
-                    }
-                    if (user.identity_doc_type) {
-                        steps.push('identity_scan');
-                    }
-                    if (user.address_doc_type) {
-                        steps.push('address_scan');
-                    }
+                    const steps = calculateCompletedSteps(user);
                     setCompletedSteps(steps);
                 }
             } catch (error) {

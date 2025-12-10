@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Check, AlertTriangle, Camera, FileUp, ArrowLeft, ArrowRight, X, Smartphone, Link as LinkIcon, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { KYCProgress } from '@/components/kyc-progress';
@@ -17,14 +17,19 @@ import { DetectedDocument } from '@/lib/edge-detection';
 
 type UploadStep = 'identity' | 'address' | 'complete';
 
-export default function ScanPage() {
+type ScanDocumentProps = {
+    scanType: 'identity' | 'address';
+    suggestedDocType?: string;
+};
+
+export function ScanDocument({ scanType, suggestedDocType }: ScanDocumentProps) {
     const router = useRouter();
     const scannerRef = useRef<DocumentScannerRef>(null);
     const fileInputFrontRef = useRef<HTMLInputElement>(null);
     const fileInputBackRef = useRef<HTMLInputElement>(null);
 
-    const [step, setStep] = useState<UploadStep>('identity');
-    const [docType, setDocType] = useState('pan');
+    const [step, setStep] = useState<UploadStep>(scanType);
+    const [docType, setDocType] = useState(suggestedDocType || (scanType === 'identity' ? 'pan' : 'aadhaar'));
 
     // Front and Back images
     const [frontImage, setFrontImage] = useState<string | null>(null);
@@ -53,9 +58,6 @@ export default function ScanPage() {
     const [backValidation, setBackValidation] = useState<DocumentValidationResult | null>(null);
     const [userData, setUserData] = useState<{ full_name: string; date_of_birth: string } | null>(null);
 
-    const searchParams = useSearchParams();
-    const typeParam = searchParams.get('type');
-
     // Check if user is on desktop
     useEffect(() => {
         const checkDevice = () => {
@@ -66,28 +68,6 @@ export default function ScanPage() {
         };
         checkDevice();
     }, []);
-
-    // Reset state when type parameter changes
-    useEffect(() => {
-        console.log('Type param changed:', typeParam);
-        if (typeParam === 'identity') {
-            console.log('Setting step to identity');
-            setStep('identity');
-            // Clear file states to force re-fetch
-            setFrontFile(null);
-            setBackFile(null);
-            setFrontValidation(null);
-            setBackValidation(null);
-        } else if (typeParam === 'address') {
-            console.log('Setting step to address');
-            setStep('address');
-            // Clear file states to force re-fetch
-            setFrontFile(null);
-            setBackFile(null);
-            setFrontValidation(null);
-            setBackValidation(null);
-        }
-    }, [typeParam]);
 
     useEffect(() => {
         const checkProgress = async () => {
@@ -102,7 +82,7 @@ export default function ScanPage() {
 
                 setUserId(session.user.id);
 
-                const { getUserProgress } = await import('../actions/authActions');
+                const { getUserProgress } = await import('@/app/actions/authActions');
                 const { calculateCompletedSteps } = await import('@/lib/kyc-progress-utils');
 
                 const result = await getUserProgress(session.user.id);
@@ -132,66 +112,49 @@ export default function ScanPage() {
                         setUserEmail(user.email);
                     }
 
-                    if (user.identity_doc_type) {
-                        // If identity doc is present, we might be in address step
-                        // OR user manually navigated back to identity scan using query param
-                        const typeParam = searchParams.get('type');
-                        const suggestedParam = searchParams.get('suggested');
+                    // Use 'as any' to bypass strict type checking for now since we know the fields exist in DB schema
+                    const userData = user as any;
 
-                        // Use 'as any' to bypass strict type checking for now since we know the fields exist in DB schema
-                        const userData = user as any;
+                    if (scanType === 'identity') {
+                        setStep('identity');
+                        // If suggested doc type exists, use it, otherwise use existing doc type or default
+                        if (!suggestedDocType && user.identity_doc_type) {
+                            setDocType(user.identity_doc_type);
+                        }
 
-                        if (typeParam === 'identity') {
-                            setStep('identity');
-                            // If suggested param exists, use it, otherwise use existing doc type or default
-                            setDocType(suggestedParam || user.identity_doc_type || 'pan');
+                        // Reset validation states
+                        setFrontValidation(null);
+                        setBackValidation(null);
+                        setFrontFile(null);
+                        setBackFile(null);
 
-                            // Reset validation states
-                            setFrontValidation(null);
-                            setBackValidation(null);
-                            setFrontFile(null);
-                            setBackFile(null);
-
-                            if (!suggestedParam) {
-                                setFrontImage(userData.identity_doc_front_url);
-                                setBackImage(userData.identity_doc_back_url);
-                            } else {
-                                // Reset images for new upload
-                                setFrontImage(null);
-                                setBackImage(null);
-                            }
-                        } else if (typeParam === 'address') {
-                            setStep('address');
-                            setDocType(suggestedParam || user.address_doc_type || 'aadhaar');
-
-                            // Reset validation states
-                            setFrontValidation(null);
-                            setBackValidation(null);
-                            setFrontFile(null);
-                            setBackFile(null);
-
-                            if (!suggestedParam) {
-                                setFrontImage(userData.address_doc_front_url || userData.address_doc_image_url);
-                                setBackImage(userData.address_doc_back_url);
-                            } else {
-                                setFrontImage(null);
-                                setBackImage(null);
-                            }
+                        if (!suggestedDocType && user.identity_doc_type) {
+                            setFrontImage(userData.identity_doc_front_url);
+                            setBackImage(userData.identity_doc_back_url);
                         } else {
-                            // Default behavior flow
-                            if (user.kyc_step === 'address_scan' || user.address_doc_type) {
-                                // Default to address step if identity is done
-                                setStep('address');
-                                setDocType(user.address_doc_type || 'aadhaar');
-                                setFrontImage(userData.address_doc_front_url || userData.address_doc_image_url);
-                                setBackImage(userData.address_doc_back_url);
-                            } else {
-                                // Stay on identity
-                                setStep('identity');
-                                setDocType(user.identity_doc_type || 'pan');
-                                setFrontImage(userData.identity_doc_front_url || userData.identity_doc_image_url);
-                                setBackImage(userData.identity_doc_back_url);
-                            }
+                            // Reset images for new upload
+                            setFrontImage(null);
+                            setBackImage(null);
+                        }
+                    } else if (scanType === 'address') {
+                        setStep('address');
+                        // If suggested doc type exists, use it, otherwise use existing doc type or default
+                        if (!suggestedDocType && user.address_doc_type) {
+                            setDocType(user.address_doc_type);
+                        }
+
+                        // Reset validation states
+                        setFrontValidation(null);
+                        setBackValidation(null);
+                        setFrontFile(null);
+                        setBackFile(null);
+
+                        if (!suggestedDocType && user.address_doc_type) {
+                            setFrontImage(userData.address_doc_front_url || userData.address_doc_image_url);
+                            setBackImage(userData.address_doc_back_url);
+                        } else {
+                            setFrontImage(null);
+                            setBackImage(null);
                         }
                     }
 
@@ -205,7 +168,7 @@ export default function ScanPage() {
         };
 
         checkProgress();
-    }, [router, searchParams]);
+    }, [router, scanType, suggestedDocType]);
 
     const handleFrontFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -606,7 +569,7 @@ export default function ScanPage() {
             }
 
             // Save to database
-            const { saveProgress } = await import('../actions/authActions');
+            const { saveProgress } = await import('@/app/actions/authActions');
 
             if (step === 'identity') {
                 const result = await saveProgress(userId, {
