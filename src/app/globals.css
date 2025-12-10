@@ -120,3 +120,24 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Mobile viewport fixes */
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Ensure full height on mobile */
+  @supports (height: 100dvh) {
+    .h-screen-mobile {
+      height: 100dvh;
+    }
+  }
+}
+
+/* Prevent zoom on input focus in mobile Safari */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}

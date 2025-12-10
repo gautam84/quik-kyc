@@ -1,23 +1,25 @@
 'use client';
 
 import { useRef, useState, useEffect, useCallback } from 'react';
-import Webcam from 'react-webcam';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Check, AlertTriangle, Camera, FileUp, ArrowLeft, ArrowRight, X, Smartphone, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Check, AlertTriangle, Camera, FileUp, ArrowLeft, ArrowRight, X, Smartphone, Link as LinkIcon, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { KYCProgress } from '@/components/kyc-progress';
+import { validateDocument, DocumentValidationResult } from '@/lib/document-validator';
+import { DocumentScanner, DocumentScannerRef } from '@/components/document-scanner';
+import { DetectedDocument } from '@/lib/edge-detection';
 
 type UploadStep = 'identity' | 'address' | 'complete';
 
 export default function ScanPage() {
     const router = useRouter();
-    const webcamRef = useRef<Webcam>(null);
+    const scannerRef = useRef<DocumentScannerRef>(null);
     const fileInputFrontRef = useRef<HTMLInputElement>(null);
     const fileInputBackRef = useRef<HTMLInputElement>(null);
 
@@ -36,9 +38,20 @@ export default function ScanPage() {
     const [isDesktop, setIsDesktop] = useState(false);
     const [showMobilePrompt, setShowMobilePrompt] = useState(false);
     const [pendingSide, setPendingSide] = useState<'front' | 'back' | null>(null);
+    const [documentDetected, setDocumentDetected] = useState<DetectedDocument | null>(null);
 
     const [processing, setProcessing] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
+    const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+    const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [sendingEmail, setSendingEmail] = useState(false);
+
+    // OCR Validation state
+    const [validatingFront, setValidatingFront] = useState(false);
+    const [validatingBack, setValidatingBack] = useState(false);
+    const [frontValidation, setFrontValidation] = useState<DocumentValidationResult | null>(null);
+    const [backValidation, setBackValidation] = useState<DocumentValidationResult | null>(null);
+    const [userData, setUserData] = useState<{ full_name: string; date_of_birth: string } | null>(null);
 
     // Check if user is on desktop
     useEffect(() => {
@@ -81,10 +94,37 @@ export default function ScanPage() {
                         return;
                     }
 
+                    // Store user data for validation
+                    setUserData({
+                        full_name: user.full_name,
+                        date_of_birth: new Date(user.date_of_birth).toISOString().split('T')[0]
+                    });
+
+                    // Store user email for sending link
+                    if (user.email) {
+                        setUserEmail(user.email);
+                    }
+
                     if (user.identity_doc_type) {
                         setStep('address');
                         setDocType('aadhaar');
                     }
+
+                    // Set completed steps based on user progress
+                    const steps = [];
+                    if (user.full_name && user.email && user.date_of_birth && user.passport_photo_url) {
+                        steps.push('basic_details');
+                    }
+                    if (user.identity_doc_type) {
+                        steps.push('identity_scan');
+                    }
+                    if (user.address_doc_type) {
+                        steps.push('address_scan');
+                    }
+                    if (user.liveness_verified) {
+                        steps.push('liveness');
+                    }
+                    setCompletedSteps(steps);
                 }
             } catch (error) {
                 console.error('Error checking progress:', error);
@@ -94,42 +134,110 @@ export default function ScanPage() {
         checkProgress();
     }, [router]);
 
-    const handleFrontFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFrontFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             setFrontFile(file);
+            setFrontValidation(null); // Reset previous validation
+
             const reader = new FileReader();
             reader.onload = (e) => {
                 if (e.target?.result) {
                     setFrontImage(e.target.result as string);
-                    toast.success("Front side uploaded");
                 }
             };
             reader.readAsDataURL(file);
+
+            // Perform OCR validation
+            toast.info("Validating document...");
+            setValidatingFront(true);
+
+            try {
+                const validationResult = await validateDocument(file, {
+                    expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
+                    expectedName: userData?.full_name,
+                    expectedDob: userData?.date_of_birth
+                });
+
+                setFrontValidation(validationResult);
+
+                if (validationResult.isValid) {
+                    toast.success("Document validated successfully!");
+                } else {
+                    toast.error("Document validation failed. Please check the errors.");
+                }
+
+                // Show warnings if any
+                validationResult.warnings.forEach(warning => {
+                    toast.warning(warning);
+                });
+            } catch (error) {
+                console.error('Validation error:', error);
+                toast.error("Failed to validate document. You can still proceed, but manual review may be required.");
+            } finally {
+                setValidatingFront(false);
+            }
         }
     };
 
-    const handleBackFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleBackFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             setBackFile(file);
+            setBackValidation(null); // Reset previous validation
+
             const reader = new FileReader();
             reader.onload = (e) => {
                 if (e.target?.result) {
                     setBackImage(e.target.result as string);
-                    toast.success("Back side uploaded");
                 }
             };
             reader.readAsDataURL(file);
+
+            // Perform OCR validation for back side (less strict)
+            toast.info("Validating document...");
+            setValidatingBack(true);
+
+            try {
+                const validationResult = await validateDocument(file, {
+                    expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
+                    expectedName: userData?.full_name,
+                    expectedDob: userData?.date_of_birth
+                });
+
+                setBackValidation(validationResult);
+
+                if (validationResult.isValid) {
+                    toast.success("Document validated successfully!");
+                } else if (validationResult.errors.length > 0) {
+                    // For back side, we're more lenient - just warn if there are issues
+                    toast.warning("Document validation completed with some warnings.");
+                }
+
+                // Show warnings if any
+                validationResult.warnings.forEach(warning => {
+                    toast.warning(warning);
+                });
+            } catch (error) {
+                console.error('Validation error:', error);
+                toast.info("Back side uploaded. Manual review may be required.");
+            } finally {
+                setValidatingBack(false);
+            }
         }
     };
 
     const handleCameraClick = (side: 'front' | 'back') => {
         console.log('Camera clicked for:', side, 'isDesktop:', isDesktop);
         setPendingSide(side);
-        // Always show camera, but on mobile also show send link option
-        setCapturingFor(side);
-        setShowCamera(true);
+
+        // Show mobile prompt for desktop users
+        if (isDesktop) {
+            setShowMobilePrompt(true);
+        } else {
+            setCapturingFor(side);
+            setShowCamera(true);
+        }
     };
 
     const handleContinueOnDesktop = () => {
@@ -140,45 +248,184 @@ export default function ScanPage() {
         }
     };
 
-    const capture = useCallback(() => {
-        const imageSrc = webcamRef.current?.getScreenshot();
+    const capture = useCallback(async () => {
+        const imageSrc = scannerRef.current?.getScreenshot();
+        const detection = scannerRef.current?.getCurrentDetection();
+        const quality = scannerRef.current?.getImageQuality();
+
         if (imageSrc && capturingFor) {
+            // Check image quality
+            if (quality?.isBlurry) {
+                toast.warning("Image is too blurry. Hold camera steady and try again.");
+                return;
+            }
+
+            if (quality?.isLowLight) {
+                toast.warning("Lighting is too low. Move to a brighter area.");
+                return;
+            }
+
+            // Check if document is well-aligned
+            if (detection && detection.confidence < 0.5) {
+                toast.warning("Document not clearly detected. Please align it better.");
+                return;
+            }
+
             // Convert base64 to File
-            fetch(imageSrc)
-                .then(res => res.blob())
-                .then(blob => {
-                    const file = new File([blob], `${capturingFor}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            try {
+                const res = await fetch(imageSrc);
+                const blob = await res.blob();
+                const file = new File([blob], `${capturingFor}_${Date.now()}.jpg`, { type: 'image/jpeg' });
 
-                    if (capturingFor === 'front') {
-                        setFrontImage(imageSrc);
-                        setFrontFile(file);
-                        toast.success("Front side captured");
-                    } else {
-                        setBackImage(imageSrc);
-                        setBackFile(file);
-                        toast.success("Back side captured");
+                // Close camera modal first
+                setShowCamera(false);
+                setDocumentDetected(null);
+
+                if (capturingFor === 'front') {
+                    setFrontImage(imageSrc);
+                    setFrontFile(file);
+                    setFrontValidation(null); // Reset previous validation
+                    toast.success("Front side captured. Validating document...");
+
+                    // Perform OCR validation
+                    setValidatingFront(true);
+
+                    try {
+                        const validationResult = await validateDocument(file, {
+                            expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
+                            expectedName: userData?.full_name,
+                            expectedDob: userData?.date_of_birth
+                        });
+
+                        setFrontValidation(validationResult);
+
+                        if (validationResult.isValid) {
+                            toast.success("Document validated successfully!");
+                        } else {
+                            toast.error("Document validation failed. Please check the errors.");
+                        }
+
+                        // Show warnings if any
+                        validationResult.warnings.forEach(warning => {
+                            toast.warning(warning);
+                        });
+                    } catch (error) {
+                        console.error('Validation error:', error);
+                        toast.error("Failed to validate document. You can still proceed, but manual review may be required.");
+                    } finally {
+                        setValidatingFront(false);
                     }
+                } else {
+                    setBackImage(imageSrc);
+                    setBackFile(file);
+                    setBackValidation(null); // Reset previous validation
+                    toast.success("Back side captured. Validating document...");
 
-                    setShowCamera(false);
-                    setCapturingFor(null);
-                });
+                    // Perform OCR validation for back side
+                    setValidatingBack(true);
+
+                    try {
+                        const validationResult = await validateDocument(file, {
+                            expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
+                            expectedName: userData?.full_name,
+                            expectedDob: userData?.date_of_birth
+                        });
+
+                        setBackValidation(validationResult);
+
+                        if (validationResult.isValid) {
+                            toast.success("Document validated successfully!");
+                        } else if (validationResult.errors.length > 0) {
+                            // For back side, we're more lenient - just warn if there are issues
+                            toast.warning("Document validation completed with some warnings.");
+                        }
+
+                        // Show warnings if any
+                        validationResult.warnings.forEach(warning => {
+                            toast.warning(warning);
+                        });
+                    } catch (error) {
+                        console.error('Validation error:', error);
+                        toast.info("Back side uploaded. Manual review may be required.");
+                    } finally {
+                        setValidatingBack(false);
+                    }
+                }
+
+                setCapturingFor(null);
+            } catch (error) {
+                console.error('Error capturing image:', error);
+                toast.error("Failed to capture image. Please try again.");
+            }
         }
-    }, [webcamRef, capturingFor]);
+    }, [scannerRef, capturingFor, docType, userData]);
 
     const handleSendLink = async () => {
         const currentUrl = window.location.href;
 
         try {
             await navigator.clipboard.writeText(currentUrl);
-            toast.success("Link copied to clipboard! Share it with your phone.");
+            toast.success("Link copied! Open it on your phone to continue.", {
+                description: "You can paste and send the link via WhatsApp, Email, or any messaging app.",
+                duration: 5000
+            });
+            // Keep modal open so user can see instructions
         } catch (err) {
+            // Fallback for browsers that don't support clipboard API
             const textArea = document.createElement('textarea');
             textArea.value = currentUrl;
             document.body.appendChild(textArea);
             textArea.select();
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            toast.success("Link copied to clipboard! Share it with your phone.");
+            toast.success("Link copied! Open it on your phone to continue.", {
+                description: "You can paste and send the link via WhatsApp, Email, or any messaging app.",
+                duration: 5000
+            });
+        }
+    };
+
+    const handleSendEmail = async () => {
+        if (!userEmail) {
+            toast.error("Email not found. Please complete your profile first.");
+            return;
+        }
+
+        setSendingEmail(true);
+
+        try {
+            const currentUrl = window.location.href;
+
+            const response = await fetch('/api/send-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    to: userEmail,
+                    url: currentUrl
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success(`Link sent to ${userEmail}!`, {
+                    description: "Check your email inbox and click the link to continue on your phone.",
+                    duration: 5000
+                });
+                setShowMobilePrompt(false);
+            } else {
+                throw new Error(data.error || 'Failed to send email');
+            }
+        } catch (error) {
+            console.error('Error sending email:', error);
+            toast.error("Failed to send email. Please try copying the link instead.", {
+                description: "You can manually share the link via WhatsApp or other messaging apps.",
+                duration: 5000
+            });
+        } finally {
+            setSendingEmail(false);
         }
     };
 
@@ -192,6 +439,23 @@ export default function ScanPage() {
         if (!backImage && docType !== 'passport') {
             toast.error("Please upload the back side of the document");
             return;
+        }
+
+        // Check if validation is still in progress
+        if (validatingFront || validatingBack) {
+            toast.error("Please wait for document validation to complete");
+            return;
+        }
+
+        // Check front document validation
+        if (frontValidation && !frontValidation.isValid) {
+            toast.error("Front document validation failed. Please upload a valid document matching your selection.");
+            return;
+        }
+
+        // Warn if no validation was performed (validation service might be down)
+        if (!frontValidation && frontFile) {
+            toast.warning("Document validation was skipped. Manual review will be required.");
         }
 
         if (!userId) {
@@ -400,29 +664,110 @@ export default function ScanPage() {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="relative">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={frontImage}
-                                                alt="Front side"
-                                                className="w-full h-auto rounded-lg border-2 border-slate-200"
-                                            />
-                                            <Button
-                                                onClick={() => {
-                                                    setFrontImage(null);
-                                                    setFrontFile(null);
-                                                }}
-                                                variant="destructive"
-                                                size="sm"
-                                                className="absolute top-2 right-2"
-                                            >
-                                                <X className="h-4 w-4 mr-1" />
-                                                Remove
-                                            </Button>
-                                            <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
-                                                <Check className="h-4 w-4" />
-                                                Uploaded
+                                        <div className="space-y-4">
+                                            <div className="relative">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img
+                                                    src={frontImage}
+                                                    alt="Front side"
+                                                    className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                />
+                                                <Button
+                                                    onClick={() => {
+                                                        setFrontImage(null);
+                                                        setFrontFile(null);
+                                                        setFrontValidation(null);
+                                                    }}
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    className="absolute top-2 right-2"
+                                                >
+                                                    <X className="h-4 w-4 mr-1" />
+                                                    Remove
+                                                </Button>
+
+                                                {/* Validation Status Badge */}
+                                                {validatingFront && (
+                                                    <div className="absolute top-2 left-2 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                        Validating...
+                                                    </div>
+                                                )}
+                                                {!validatingFront && frontValidation && frontValidation.isValid && (
+                                                    <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                        <CheckCircle className="h-4 w-4" />
+                                                        Verified
+                                                    </div>
+                                                )}
+                                                {!validatingFront && frontValidation && !frontValidation.isValid && (
+                                                    <div className="absolute top-2 left-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                        <XCircle className="h-4 w-4" />
+                                                        Failed
+                                                    </div>
+                                                )}
+                                                {!validatingFront && !frontValidation && (
+                                                    <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                        <Check className="h-4 w-4" />
+                                                        Uploaded
+                                                    </div>
+                                                )}
                                             </div>
+
+                                            {/* Validation Results */}
+                                            {!validatingFront && frontValidation && (
+                                                <div className="space-y-2">
+                                                    {/* Detected Type */}
+                                                    {frontValidation.detectedType && (
+                                                        <div className="flex items-center gap-2 text-sm">
+                                                            <span className="text-slate-600">Detected:</span>
+                                                            <span className="font-semibold text-slate-900">
+                                                                {frontValidation.detectedType.toUpperCase()}
+                                                            </span>
+                                                            <span className="text-slate-500">
+                                                                ({Math.round(frontValidation.confidence)}% confidence)
+                                                            </span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Extracted Data */}
+                                                    {frontValidation.extractedData.documentNumber && (
+                                                        <div className="flex items-center gap-2 text-sm">
+                                                            <span className="text-slate-600">Document Number:</span>
+                                                            <span className="font-mono font-semibold text-slate-900">
+                                                                {frontValidation.extractedData.documentNumber}
+                                                            </span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Errors */}
+                                                    {frontValidation.errors.length > 0 && (
+                                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                                            <div className="flex items-start gap-2">
+                                                                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                                                <div className="space-y-1">
+                                                                    {frontValidation.errors.map((error, idx) => (
+                                                                        <p key={idx} className="text-sm text-red-700">{error}</p>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Warnings */}
+                                                    {frontValidation.warnings.length > 0 && (
+                                                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                                            <div className="flex items-start gap-2">
+                                                                <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                                                                <div className="space-y-1">
+                                                                    {frontValidation.warnings.map((warning, idx) => (
+                                                                        <p key={idx} className="text-sm text-yellow-700">{warning}</p>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -469,41 +814,122 @@ export default function ScanPage() {
                                                 </div>
                                             </div>
                                         ) : (
-                                        <div className="relative">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={backImage}
-                                                alt="Back side"
-                                                className="w-full h-auto rounded-lg border-2 border-slate-200"
-                                            />
-                                            <Button
-                                                onClick={() => {
-                                                    setBackImage(null);
-                                                    setBackFile(null);
-                                                }}
-                                                variant="destructive"
-                                                size="sm"
-                                                className="absolute top-2 right-2"
-                                            >
-                                                <X className="h-4 w-4 mr-1" />
-                                                Remove
-                                            </Button>
-                                            <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
-                                                <Check className="h-4 w-4" />
-                                                Uploaded
-                                            </div>
-                                        </div>
-                                    )}
+                                            <div className="space-y-4">
+                                                <div className="relative">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={backImage}
+                                                        alt="Back side"
+                                                        className="w-full h-auto rounded-lg border-2 border-slate-200"
+                                                    />
+                                                    <Button
+                                                        onClick={() => {
+                                                            setBackImage(null);
+                                                            setBackFile(null);
+                                                            setBackValidation(null);
+                                                        }}
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        className="absolute top-2 right-2"
+                                                    >
+                                                        <X className="h-4 w-4 mr-1" />
+                                                        Remove
+                                                    </Button>
 
-                                    <input
-                                        ref={fileInputBackRef}
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleBackFileUpload}
-                                        className="hidden"
-                                    />
-                                </CardContent>
-                            </Card>
+                                                    {/* Validation Status Badge */}
+                                                    {validatingBack && (
+                                                        <div className="absolute top-2 left-2 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                            Validating...
+                                                        </div>
+                                                    )}
+                                                    {!validatingBack && backValidation && backValidation.isValid && (
+                                                        <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                            <CheckCircle className="h-4 w-4" />
+                                                            Verified
+                                                        </div>
+                                                    )}
+                                                    {!validatingBack && backValidation && !backValidation.isValid && (
+                                                        <div className="absolute top-2 left-2 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                            <AlertTriangle className="h-4 w-4" />
+                                                            Warning
+                                                        </div>
+                                                    )}
+                                                    {!validatingBack && !backValidation && (
+                                                        <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                                                            <Check className="h-4 w-4" />
+                                                            Uploaded
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Validation Results */}
+                                                {!validatingBack && backValidation && (
+                                                    <div className="space-y-2">
+                                                        {/* Detected Type */}
+                                                        {backValidation.detectedType && (
+                                                            <div className="flex items-center gap-2 text-sm">
+                                                                <span className="text-slate-600">Detected:</span>
+                                                                <span className="font-semibold text-slate-900">
+                                                                    {backValidation.detectedType.toUpperCase()}
+                                                                </span>
+                                                                <span className="text-slate-500">
+                                                                    ({Math.round(backValidation.confidence)}% confidence)
+                                                                </span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Address if extracted */}
+                                                        {backValidation.extractedData.address && (
+                                                            <div className="flex flex-col gap-1 text-sm">
+                                                                <span className="text-slate-600">Address:</span>
+                                                                <span className="text-slate-900">
+                                                                    {backValidation.extractedData.address}
+                                                                </span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Errors */}
+                                                        {backValidation.errors.length > 0 && (
+                                                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                                                                    <div className="space-y-1">
+                                                                        {backValidation.errors.map((error, idx) => (
+                                                                            <p key={idx} className="text-sm text-yellow-700">{error}</p>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Warnings */}
+                                                        {backValidation.warnings.length > 0 && (
+                                                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                                                                    <div className="space-y-1">
+                                                                        {backValidation.warnings.map((warning, idx) => (
+                                                                            <p key={idx} className="text-sm text-yellow-700">{warning}</p>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <input
+                                            ref={fileInputBackRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleBackFileUpload}
+                                            className="hidden"
+                                        />
+                                    </CardContent>
+                                </Card>
                             )}
 
                             {/* Camera Modal - Full Screen Overlay */}
@@ -511,16 +937,19 @@ export default function ScanPage() {
                                 <motion.div
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="fixed inset-0 bg-black z-50 flex flex-col"
+                                    className="fixed inset-0 bg-black z-[100] flex flex-col"
+                                    style={{ height: '100dvh' }}
                                 >
-                                    <div className="flex justify-between items-center p-4 bg-slate-900">
-                                        <h3 className="text-lg font-semibold text-white">
+                                    {/* Header */}
+                                    <div className="flex-shrink-0 flex justify-between items-center p-4 bg-slate-900/95 backdrop-blur-sm">
+                                        <h3 className="text-base sm:text-lg font-semibold text-white">
                                             Capture {capturingFor === 'front' ? 'Front' : 'Back'} Side
                                         </h3>
                                         <Button
                                             onClick={() => {
                                                 setShowCamera(false);
                                                 setCapturingFor(null);
+                                                setDocumentDetected(null);
                                             }}
                                             variant="ghost"
                                             size="sm"
@@ -529,71 +958,122 @@ export default function ScanPage() {
                                             <X className="h-5 w-5" />
                                         </Button>
                                     </div>
-                                    <div className="flex-1 flex items-center justify-center p-4">
-                                        <Webcam
-                                            ref={webcamRef}
-                                            audio={false}
-                                            screenshotFormat="image/jpeg"
-                                            className="max-w-full max-h-full rounded-lg"
-                                            videoConstraints={{
-                                                facingMode: "environment",
-                                                width: { ideal: 1920 },
-                                                height: { ideal: 1080 }
-                                            }}
+
+                                    {/* Camera View */}
+                                    <div className="flex-1 relative overflow-hidden bg-black">
+                                        <DocumentScanner
+                                            ref={scannerRef}
+                                            onDocumentDetected={setDocumentDetected}
+                                            onError={(err) => toast.error("Camera error: " + (typeof err === 'string' ? err : err.message))}
+                                            detectionInterval={500}
+                                            className="absolute inset-0 w-full h-full"
                                         />
                                     </div>
-                                    <div className="p-4 bg-slate-900 space-y-3">
+
+                                    {/* Controls */}
+                                    <div className="flex-shrink-0 p-4 bg-slate-900/95 backdrop-blur-sm space-y-3 safe-bottom">
                                         <Button
                                             onClick={capture}
-                                            className="w-full bg-blue-600 hover:bg-blue-700"
+                                            className={`w-full ${documentDetected && documentDetected.confidence > 0.7
+                                                    ? 'bg-green-600 hover:bg-green-700'
+                                                    : 'bg-blue-600 hover:bg-blue-700'
+                                                }`}
                                             size="lg"
                                         >
                                             <Camera className="mr-2 h-5 w-5" />
-                                            Capture Photo
+                                            {documentDetected && documentDetected.confidence > 0.7
+                                                ? 'Capture Now'
+                                                : 'Capture Photo'}
                                         </Button>
-                                        {!isDesktop && (
-                                            <Button
-                                                onClick={handleSendLink}
-                                                variant="outline"
-                                                className="w-full text-white border-white hover:bg-slate-800"
-                                                size="lg"
-                                            >
-                                                <LinkIcon className="mr-2 h-5 w-5" />
-                                                Send Link to Another Device
-                                            </Button>
-                                        )}
                                     </div>
                                 </motion.div>
                             )}
 
-                            {/* Mobile Prompt */}
+                            {/* Mobile Continuation Prompt Modal */}
                             {showMobilePrompt && isDesktop && (
-                                <Card className="border-2 border-blue-200 bg-blue-50/50 mb-6">
-                                    <CardContent className="p-6">
-                                        <div className="text-center">
-                                            <Smartphone className="w-12 h-12 text-blue-600 mx-auto mb-4" />
-                                            <h3 className="text-lg font-semibold text-slate-900 mb-2">Use Your Mobile Phone</h3>
-                                            <p className="text-slate-600 mb-4">
-                                                For the best document scanning experience, please use your mobile phone camera.
-                                            </p>
-                                            <div className="flex gap-3 justify-center">
+                                <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                                    onClick={() => setShowMobilePrompt(false)}
+                                >
+                                    <motion.div
+                                        initial={{ scale: 0.95, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ delay: 0.1 }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+                                    >
+                                        {/* Header */}
+                                        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-5 text-white relative">
+                                            <Button
+                                                onClick={() => setShowMobilePrompt(false)}
+                                                variant="ghost"
+                                                size="sm"
+                                                className="absolute top-3 right-3 text-white hover:bg-white/20"
+                                            >
+                                                <X className="h-5 w-5" />
+                                            </Button>
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <Smartphone className="w-10 h-10" />
+                                                <div>
+                                                    <h3 className="text-xl font-bold">Continue on Phone</h3>
+                                                    <p className="text-sm text-blue-100">Better quality & easier scanning</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Content */}
+                                        <div className="p-5 space-y-4">
+                                            {/* Email Display */}
+                                            {userEmail && (
+                                                <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                                                    <p className="text-xs text-blue-600 font-medium mb-1">Sending to:</p>
+                                                    <p className="text-sm text-blue-900 font-semibold">{userEmail}</p>
+                                                </div>
+                                            )}
+
+                                            {/* Actions */}
+                                            <div className="space-y-2">
+                                                {userEmail && (
+                                                    <Button
+                                                        onClick={handleSendEmail}
+                                                        disabled={sendingEmail}
+                                                        className="w-full bg-blue-600 hover:bg-blue-700"
+                                                        size="lg"
+                                                    >
+                                                        {sendingEmail ? (
+                                                            <>
+                                                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                                Sending Email...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Smartphone className="mr-2 h-5 w-5" />
+                                                                Send Link to Email
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     onClick={handleSendLink}
                                                     variant="outline"
+                                                    className="w-full"
                                                 >
                                                     <LinkIcon className="mr-2 h-4 w-4" />
-                                                    Send Link
+                                                    Copy Link
                                                 </Button>
                                                 <Button
-                                                    onClick={() => setShowMobilePrompt(false)}
+                                                    onClick={handleContinueOnDesktop}
                                                     variant="ghost"
+                                                    className="w-full text-slate-600"
                                                 >
-                                                    Dismiss
+                                                    Use Camera Here
                                                 </Button>
                                             </div>
                                         </div>
-                                    </CardContent>
-                                </Card>
+                                    </motion.div>
+                                </motion.div>
                             )}
 
                             {/* Submit Button */}
@@ -609,7 +1089,14 @@ export default function ScanPage() {
                                 </Button>
                                 <Button
                                     onClick={handleSubmit}
-                                    disabled={!frontImage || !backImage || processing}
+                                    disabled={
+                                        !frontImage ||
+                                        (!backImage && docType !== 'passport') ||
+                                        processing ||
+                                        validatingFront ||
+                                        validatingBack ||
+                                        Boolean(frontValidation && !frontValidation.isValid)
+                                    }
                                     size="lg"
                                     className="flex-1 bg-blue-600 hover:bg-blue-700"
                                 >
@@ -617,6 +1104,11 @@ export default function ScanPage() {
                                         <>
                                             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                                             Processing...
+                                        </>
+                                    ) : validatingFront || validatingBack ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                            Validating Document...
                                         </>
                                     ) : (
                                         <>
@@ -634,7 +1126,7 @@ export default function ScanPage() {
                         <div className="sticky top-6">
                             <KYCProgress
                                 currentStep={step === 'identity' ? 'identity_scan' : 'address_scan'}
-                                completedSteps={step === 'address' ? ['basic_details', 'identity_scan'] : ['basic_details']}
+                                completedSteps={completedSteps}
                                 estimatedTime="3 min"
                             />
                         </div>

@@ -14,15 +14,44 @@ import Image from 'next/image';
 export default function DocumentGuidancePage() {
     const router = useRouter();
     const [userId, setUserId] = useState<string | null>(null);
+    const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
     useEffect(() => {
         const checkSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                router.push('/verify');
-                return;
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) {
+                    router.push('/verify');
+                    return;
+                }
+                setUserId(session.user.id);
+
+                // Get user progress
+                const { getUserProgress } = await import('../actions/authActions');
+                const result = await getUserProgress(session.user.id);
+
+                if (result.success && result.user) {
+                    const user = result.user;
+
+                    // Set completed steps based on user progress
+                    const steps = [];
+                    if (user.full_name && user.email && user.date_of_birth && user.passport_photo_url) {
+                        steps.push('basic_details');
+                    }
+                    if (user.identity_doc_type) {
+                        steps.push('identity_scan');
+                    }
+                    if (user.address_doc_type) {
+                        steps.push('address_scan');
+                    }
+                    if (user.liveness_verified) {
+                        steps.push('liveness');
+                    }
+                    setCompletedSteps(steps);
+                }
+            } catch (error) {
+                console.error('Error checking session:', error);
             }
-            setUserId(session.user.id);
         };
         checkSession();
     }, [router]);
@@ -214,8 +243,8 @@ export default function DocumentGuidancePage() {
                     <div className="lg:col-span-1">
                         <div className="sticky top-6">
                             <KYCProgress
-                                currentStep="document_guidance"
-                                completedSteps={['basic_details']}
+                                currentStep="identity_scan"
+                                completedSteps={completedSteps}
                                 estimatedTime="5 min"
                                 showSaveResume={true}
                             />

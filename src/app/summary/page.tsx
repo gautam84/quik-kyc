@@ -11,9 +11,9 @@ import { Loader2, CheckCircle2, Edit, User, FileText, Home, Smartphone, ArrowRig
 import { KYCProgress } from '@/components/kyc-progress';
 
 interface UserData {
-    full_name: string;
-    email: string;
-    date_of_birth: string;
+    full_name: string | null;
+    email: string | null;
+    date_of_birth: Date | string | null;
     passport_photo_url: string | null;
     identity_doc_type: string | null;
     identity_doc_number: string | null;
@@ -29,6 +29,7 @@ export default function SummaryPage() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
+    const [completedSteps, setCompletedSteps] = useState<string[]>([]);
 
     useEffect(() => {
         const loadUserData = async () => {
@@ -63,6 +64,22 @@ export default function SummaryPage() {
                         router.push('/submission');
                         return;
                     }
+
+                    // Set completed steps based on user progress
+                    const steps = [];
+                    if (user.full_name && user.email && user.date_of_birth && user.passport_photo_url) {
+                        steps.push('basic_details');
+                    }
+                    if (user.identity_doc_type) {
+                        steps.push('identity_scan');
+                    }
+                    if (user.address_doc_type) {
+                        steps.push('address_scan');
+                    }
+                    if (user.liveness_verified) {
+                        steps.push('liveness');
+                    }
+                    setCompletedSteps(steps);
                 } else {
                     toast.error("Failed to load your data");
                     router.push('/basic-details');
@@ -109,8 +126,9 @@ export default function SummaryPage() {
         }
     };
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
+    const formatDate = (dateString: string | Date | null) => {
+        if (!dateString) return 'N/A';
+        const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
         return date.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
@@ -374,7 +392,7 @@ export default function SummaryPage() {
                         <div className="sticky top-6">
                             <KYCProgress
                                 currentStep="summary"
-                                completedSteps={['basic_details', 'identity_scan', 'address_scan', 'liveness']}
+                                completedSteps={completedSteps}
                                 estimatedTime="1 min"
                                 showSaveResume={false}
                             />

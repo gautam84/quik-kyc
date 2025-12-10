@@ -80,6 +80,7 @@ export default function Home() {
             subscription.unsubscribe();
         };
     }, [router]);
+
     const containerVariants: Variants = {
         hidden: { opacity: 0 },
         visible: {
