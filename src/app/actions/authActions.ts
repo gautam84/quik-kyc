@@ -1,7 +1,7 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { Prisma } from '@/generated/prisma/client';
+import { Prisma } from '@prisma/client';
 
 
 export async function syncUser(supabaseUid: string, mobileNumber: string) {
