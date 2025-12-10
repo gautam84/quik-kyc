@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -14,7 +14,7 @@ import { validateDocument, DocumentValidationResult } from '@/lib/document-valid
 import { DocumentScanner, DocumentScannerRef } from '@/components/document-scanner';
 import { DetectedDocument } from '@/lib/edge-detection';
 
-export default function OtherDocsPage() {
+function OtherDocsContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const scannerRef = useRef<DocumentScannerRef>(null);
@@ -546,5 +546,17 @@ export default function OtherDocsPage() {
                 </motion.div>
             </div>
         </div>
+    );
+}
+
+export default function OtherDocsPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </div>
+        }>
+            <OtherDocsContent />
+        </Suspense>
     );
 }
