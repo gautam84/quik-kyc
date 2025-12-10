@@ -250,27 +250,9 @@ export default function ScanPage() {
 
     const capture = useCallback(async () => {
         const imageSrc = scannerRef.current?.getScreenshot();
-        const detection = scannerRef.current?.getCurrentDetection();
         const quality = scannerRef.current?.getImageQuality();
 
         if (imageSrc && capturingFor) {
-            // Check image quality
-            if (quality?.isBlurry) {
-                toast.warning("Image is too blurry. Hold camera steady and try again.");
-                return;
-            }
-
-            if (quality?.isLowLight) {
-                toast.warning("Lighting is too low. Move to a brighter area.");
-                return;
-            }
-
-            // Check if document is well-aligned
-            if (detection && detection.confidence < 0.5) {
-                toast.warning("Document not clearly detected. Please align it better.");
-                return;
-            }
-
             // Convert base64 to File
             try {
                 const res = await fetch(imageSrc);
@@ -285,12 +267,21 @@ export default function ScanPage() {
                     setFrontImage(imageSrc);
                     setFrontFile(file);
                     setFrontValidation(null); // Reset previous validation
-                    toast.success("Front side captured. Validating document...");
+                    toast.success("Front side captured. Analyzing quality and validating document...");
 
-                    // Perform OCR validation
+                    // Perform quality checks and OCR validation
                     setValidatingFront(true);
 
                     try {
+                        // Check image quality after capture
+                        if (quality?.isBlurry) {
+                            toast.warning(`Image appears blurry (score: ${quality.blurScore}). Consider retaking for better results.`);
+                        }
+
+                        if (quality?.isLowLight) {
+                            toast.warning(`Image has low lighting (brightness: ${quality.brightness}). Consider retaking in better light.`);
+                        }
+
                         const validationResult = await validateDocument(file, {
                             expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
                             expectedName: userData?.full_name,
@@ -319,12 +310,21 @@ export default function ScanPage() {
                     setBackImage(imageSrc);
                     setBackFile(file);
                     setBackValidation(null); // Reset previous validation
-                    toast.success("Back side captured. Validating document...");
+                    toast.success("Back side captured. Analyzing quality and validating document...");
 
-                    // Perform OCR validation for back side
+                    // Perform quality checks and OCR validation for back side
                     setValidatingBack(true);
 
                     try {
+                        // Check image quality after capture
+                        if (quality?.isBlurry) {
+                            toast.warning(`Image appears blurry (score: ${quality.blurScore}). Consider retaking for better results.`);
+                        }
+
+                        if (quality?.isLowLight) {
+                            toast.warning(`Image has low lighting (brightness: ${quality.brightness}). Consider retaking in better light.`);
+                        }
+
                         const validationResult = await validateDocument(file, {
                             expectedType: docType as 'pan' | 'aadhaar' | 'passport' | 'voter' | 'driving_license',
                             expectedName: userData?.full_name,
