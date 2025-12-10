@@ -31,15 +31,15 @@ export default function SubmissionPage() {
                 const result = await getUserProgress(session.user.id);
 
                 if (result.success && result.user) {
-                    if (result.user.kyc_status !== 'completed' && !result.user.is_rejected) {
+                    if (result.user.kyc_status == 'pending') {
                         // User hasn't completed KYC, redirect appropriately
-                        const stepRoutes: Record<string, string> = {
-                            'onboarding': '/onboarding',
-                            'identity_scan': '/scan',
-                            'address_scan': '/scan',
-                            'liveness': '/liveness',
-                        };
-                        router.push(stepRoutes[result.user.kyc_step] || '/onboarding');
+                        // const stepRoutes: Record<string, string> = {
+                        //     'onboarding': '/onboarding',
+                        //     'identity_scan': '/scan',
+                        //     'address_scan': '/scan',
+                        //     'liveness': '/liveness',
+                        // };
+                        router.push('/onboarding');
                         return;
                     }
                     setUserData(result.user);
@@ -124,24 +124,48 @@ export default function SubmissionPage() {
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-                        className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${userData.is_rejected ? 'bg-red-100' : 'bg-green-100'
+                        className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${userData.is_rejected
+                            ? 'bg-red-100'
+                            : userData.kyc_status === 'verified'
+                                ? 'bg-green-100'
+                                : 'bg-amber-100'
                             }`}
                     >
                         {userData.is_rejected ? (
                             <XCircle className="w-12 h-12 text-red-600" />
-                        ) : (
+                        ) : userData.kyc_status === 'verified' ? (
                             <CheckCircle className="w-12 h-12 text-green-600" />
+                        ) : (
+                            <div className="relative">
+                                <AlertCircle className="w-12 h-12 text-amber-600" />
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="w-16 h-16 border-4 border-amber-600 border-t-transparent rounded-full animate-spin" style={{ margin: '-8px' }}></div>
+                                </div>
+                            </div>
                         )}
                     </motion.div>
                     <div>
                         <h1 className="text-3xl font-bold text-slate-900">
-                            {userData.is_rejected ? 'Action Required' : 'KYC Completed!'}
+                            {userData.is_rejected
+                                ? 'Action Required'
+                                : userData.kyc_status === 'verified'
+                                    ? 'KYC Verified'
+                                    : 'Application Under Review'}
                         </h1>
                         <p className="text-slate-600 mt-2">
                             {userData.is_rejected
                                 ? 'Your verification application was returned.'
-                                : 'Your verification has been successfully submitted.'}
+                                : userData.kyc_status === 'verified'
+                                    ? 'User completed KYC successfully.'
+                                    : 'Your application is currently being reviewed by our team.'}
                         </p>
+
+                        {(userData.is_rejected || userData.kyc_status === 'completed') && (
+                            <div className="mt-4 inline-flex items-center px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-sm font-medium">
+                                <RotateCcw className="w-4 h-4 mr-2" />
+                                {Math.max(0, 3 - (userData.kyc_attempts || 0))} attempts left
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -264,10 +288,19 @@ export default function SubmissionPage() {
 
                 {/* Status Note - Only show if not rejected (as rejected has its own card) */}
                 {!userData.is_rejected && (
-                    <Card className="bg-blue-50 border-blue-200">
+                    <Card className={`${userData.kyc_status === 'verified'
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-amber-50 border-amber-200'
+                        }`}>
                         <CardContent className="p-4">
-                            <p className="text-sm text-blue-900">
-                                <strong>Status:</strong> Your KYC verification is complete. You will be notified once it has been reviewed and approved.
+                            <p className={`text-sm ${userData.kyc_status === 'verified'
+                                ? 'text-green-900'
+                                : 'text-amber-900'
+                                }`}>
+                                <strong>Status: </strong>
+                                {userData.kyc_status === 'verified'
+                                    ? 'Your KYC has been successfully verified. No further action is required.'
+                                    : 'Your application is currently under review. You will be notified once the verification process is complete.'}
                             </p>
                         </CardContent>
                     </Card>

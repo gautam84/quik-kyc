@@ -77,7 +77,10 @@ export async function saveProgress(supabaseUid: string, progressData: Prisma.Use
 export async function completeKYC(supabaseUid: string) {
     try {
         // Generate reference ID
-        const referenceId = `KYC${Date.now()}${Math.floor(Math.random() * 1000)}`;
+        // Generate reference ID: KYC-XXXX-XXXX
+        const generateSegment = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        const referenceId = `KYC-${generateSegment()}-${generateSegment()}`;
+
 
         const user = await prisma.user.update({
             where: {
@@ -189,7 +192,32 @@ export async function resetKYCRejection(supabaseUid: string) {
                 is_rejected: false,
                 rejection_reason: null,
                 kyc_status: 'pending',
+                kyc_step: 'onboarding',
                 updated_at: new Date(),
+
+                // Reset all personal and document details
+                full_name: null,
+                email: null,
+                date_of_birth: null,
+
+                passport_photo_url: null,
+
+                identity_doc_type: null,
+                identity_doc_number: null,
+                identity_doc_front_url: null,
+                identity_doc_back_url: null,
+
+                address_doc_type: null,
+                address_doc_number: null,
+                address_doc_front_url: null,
+                address_doc_back_url: null,
+                address_line: null,
+
+                liveness_verified: false,
+                selfie_image_url: null,
+
+                reference_id: null,
+                completed_at: null
             },
         });
 

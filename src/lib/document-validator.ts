@@ -112,11 +112,16 @@ function detectDocumentType(text: string): string | null {
         return 'pan';
     }
 
-    // Aadhaar Card patterns
+    // Aadhaar Card patterns (more robust)
+    // Aadhaar Card patterns (more robust)
+    const aadhaarNumberPattern = /\d{4}[\s-]*\d{4}[\s-]*\d{4}/;
     if (
-        text.includes('AADHAAR') ||
-        text.includes('GOVERNMENT OF INDIA') && text.match(/\d{4}\s*\d{4}\s*\d{4}/) ||
-        text.includes('VID')
+        /AADHAAR|ADHAR|ADHAAR/i.test(text) ||
+        (/GOVERNMENT|GOVT/i.test(text) && /INDIA/i.test(text) && aadhaarNumberPattern.test(text)) ||
+        text.includes('VID') ||
+        /UIDAI/i.test(text) ||
+        // Fallback: 12 digit number AND (DOB OR Gender OR India)
+        (aadhaarNumberPattern.test(text) && (/DOB|DATE OF BIRTH|YEAR OF BIRTH/i.test(text) || /MALE|FEMALE/i.test(text) || /INDIA/i.test(text)))
     ) {
         return 'aadhaar';
     }
@@ -183,15 +188,40 @@ function extractDocumentData(
 
         case 'aadhaar':
             // Extract Aadhaar number (format: XXXX XXXX XXXX)
-            const aadhaarMatch = text.match(/\d{4}\s*\d{4}\s*\d{4}/);
+            const aadhaarMatch = text.match(/\d{4}[\s-]*\d{4}[\s-]*\d{4}/);
             if (aadhaarMatch) {
-                data.documentNumber = aadhaarMatch[0].replace(/\s/g, '');
+                data.documentNumber = aadhaarMatch[0].replace(/[\s-]/g, '');
             }
 
             // Extract DOB
-            const aadhaarDobMatch = text.match(/DOB[:\s]*(\d{2}[\/\-]\d{2}[\/\-]\d{4})|YEAR OF BIRTH[:\s]*(\d{4})/);
+            const aadhaarDobMatch = text.match(/(?:DOB|DATE OF BIRTH|YEAR OF BIRTH)[:\s]*(\d{2}[\/\-]\d{2}[\/\-]\d{4}|\d{4})/);
             if (aadhaarDobMatch) {
-                data.dob = aadhaarDobMatch[1] || aadhaarDobMatch[2];
+                data.dob = aadhaarDobMatch[1];
+            }
+
+            // Extract Name (Strategy: Look for the line preceding the DOB line)
+            // Split text into lines to analyze structure
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+            // Find the line index containing DOB
+            const dobLineIndex = lines.findIndex(l => /(?:DOB|DATE OF BIRTH|YEAR OF BIRTH)/.test(l));
+
+            if (dobLineIndex > 0) {
+                // The name is typically on the line before DOB
+                // We skip "Government of India" or similar headers if they appear immediately before
+                let nameCandidateIndex = dobLineIndex - 1;
+                while (nameCandidateIndex >= 0) {
+                    const candidate = lines[nameCandidateIndex];
+                    // Skip widely known headers
+                    if (/GOVERNMENT|INDIA|BHARAT|SARKAR/i.test(candidate)) {
+                        nameCandidateIndex--;
+                        continue;
+                    }
+                    // If line is too short or looks like just a label, skip? 
+                    // For now, accept it if it's not a header
+                    data.name = candidate;
+                    break;
+                }
             }
 
             // Extract address (text after "Address:" or similar)

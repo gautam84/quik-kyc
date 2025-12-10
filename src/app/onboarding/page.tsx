@@ -41,6 +41,7 @@ export default function OnboardingPage() {
                     // If user is on a later step, resume from there
                     if (user.kyc_step && user.kyc_step !== 'onboarding') {
                         const stepRoutes: Record<string, string> = {
+                            'basic_details': '/basic-details',
                             'identity_scan': '/scan/poi',
                             'address_scan': '/scan/poa',
                             'liveness': '/liveness',

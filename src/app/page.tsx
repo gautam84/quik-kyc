@@ -31,6 +31,7 @@ export default function Home() {
                         router.replace('/submission');
                     } else if (user.kyc_step && user.kyc_step !== 'onboarding') {
                         const stepRoutes: Record<string, string> = {
+                            'basic_details': '/basic-details',
                             'identity_scan': '/scan/poi',
                             'address_scan': '/scan/poa',
                             'liveness': '/liveness',
@@ -62,6 +63,7 @@ export default function Home() {
                         router.replace('/submission');
                     } else if (user.kyc_step && user.kyc_step !== 'onboarding') {
                         const stepRoutes: Record<string, string> = {
+                            'basic_details': '/basic-details',
                             'identity_scan': '/scan/poi',
                             'address_scan': '/scan/poa',
                             'liveness': '/liveness',

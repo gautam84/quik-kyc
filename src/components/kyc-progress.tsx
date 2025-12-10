@@ -90,11 +90,9 @@ export function KYCProgress({
 
     const handleSaveResume = async () => {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-                toast.success("Progress saved! You can resume anytime.");
-                router.push('/');
-            }
+            await supabase.auth.signOut();
+            toast.success("Progress saved. Please login to resume.");
+            router.push('/verify');
         } catch {
             toast.error("Failed to save progress");
         }

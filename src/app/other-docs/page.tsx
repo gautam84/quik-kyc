@@ -241,6 +241,15 @@ function OtherDocsContent() {
                     setValidatingFront(true);
 
                     try {
+                        // Check image quality after capture
+                        if (quality?.isBlurry) {
+                            toast.warning(`Image appears blurry (score: ${quality.blurScore}). Consider retaking for better results.`);
+                        }
+
+                        if (quality?.isLowLight) {
+                            toast.warning(`Image has low lighting (brightness: ${quality.brightness}). Consider retaking in better light.`);
+                        }
+
                         const validationResult = await validateDocument(file, {
                             expectedType: docType as 'pan' | 'aadhaar',
                             expectedName: userData?.full_name,
@@ -268,6 +277,15 @@ function OtherDocsContent() {
                     setValidatingBack(true);
 
                     try {
+                        // Check image quality after capture
+                        if (quality?.isBlurry) {
+                            toast.warning(`Image appears blurry (score: ${quality.blurScore}). Consider retaking for better results.`);
+                        }
+
+                        if (quality?.isLowLight) {
+                            toast.warning(`Image has low lighting (brightness: ${quality.brightness}). Consider retaking in better light.`);
+                        }
+
                         const validationResult = await validateDocument(file, {
                             expectedType: docType as 'pan' | 'aadhaar',
                             expectedName: userData?.full_name,
@@ -471,7 +489,48 @@ function OtherDocsContent() {
                                     {validatingFront && <div className="absolute top-2 left-2 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Loader2 className="h-4 w-4 animate-spin" />Validating...</div>}
                                     {!validatingFront && frontValidation?.isValid && <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><CheckCircle className="h-4 w-4" />Verified</div>}
                                     {!validatingFront && frontValidation && !frontValidation.isValid && <div className="absolute top-2 left-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><XCircle className="h-4 w-4" />Failed</div>}
-                                    {/* Warnings and Errors rendering could be added here similar to ScanPage */}
+                                </div>
+                            )}
+
+                            {/* Detailed Validation Results for Front */}
+                            {!validatingFront && frontValidation && (
+                                <div className="mt-4 space-y-2">
+                                    {/* Detected Type */}
+                                    {frontValidation.detectedType && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <span className="text-slate-600">Detected:</span>
+                                            <span className="font-semibold text-slate-900">
+                                                {frontValidation.detectedType.toUpperCase()}
+                                            </span>
+                                            <span className="text-slate-500">
+                                                ({Math.round(frontValidation.confidence)}% confidence)
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Extracted Data */}
+                                    {frontValidation.extractedData.documentNumber && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <span className="text-slate-600">Document Number:</span>
+                                            <span className="font-mono font-semibold text-slate-900">
+                                                {frontValidation.extractedData.documentNumber}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Errors */}
+                                    {frontValidation.errors.length > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                            <div className="flex items-start gap-2">
+                                                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                                <div className="space-y-1">
+                                                    {frontValidation.errors.map((error, idx) => (
+                                                        <p key={idx} className="text-sm text-red-700">{error}</p>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             <input ref={fileInputFrontRef} type="file" accept="image/*" onChange={handleFrontFileUpload} className="hidden" />
@@ -500,6 +559,48 @@ function OtherDocsContent() {
                                     <Button onClick={() => { setBackImage(null); setBackFile(null); setBackValidation(null); }} variant="destructive" size="sm" className="absolute top-2 right-2"><X className="h-4 w-4 mr-1" />Remove</Button>
                                     {validatingBack && <div className="absolute top-2 left-2 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><Loader2 className="h-4 w-4 animate-spin" />Validating...</div>}
                                     {!validatingBack && backValidation?.isValid && <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-1"><CheckCircle className="h-4 w-4" />Verified</div>}
+                                </div>
+                            )}
+
+                            {/* Detailed Validation Results for Back */}
+                            {!validatingBack && backValidation && (
+                                <div className="mt-4 space-y-2">
+                                    {/* Detected Type */}
+                                    {backValidation.detectedType && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <span className="text-slate-600">Detected:</span>
+                                            <span className="font-semibold text-slate-900">
+                                                {backValidation.detectedType.toUpperCase()}
+                                            </span>
+                                            <span className="text-slate-500">
+                                                ({Math.round(backValidation.confidence)}% confidence)
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Extracted Data */}
+                                    {backValidation.extractedData.documentNumber && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <span className="text-slate-600">Document Number:</span>
+                                            <span className="font-mono font-semibold text-slate-900">
+                                                {backValidation.extractedData.documentNumber}
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Errors */}
+                                    {backValidation.errors.length > 0 && (
+                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                            <div className="flex items-start gap-2">
+                                                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                                <div className="space-y-1">
+                                                    {backValidation.errors.map((error, idx) => (
+                                                        <p key={idx} className="text-sm text-red-700">{error}</p>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             <input ref={fileInputBackRef} type="file" accept="image/*" onChange={handleBackFileUpload} className="hidden" />

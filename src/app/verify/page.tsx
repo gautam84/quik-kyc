@@ -119,12 +119,13 @@ export default function VerifyPage() {
 
                     // Slight delay before navigation for better UX
                     setTimeout(() => {
-                        if (user.kyc_status === 'completed') {
+                        if (user.kyc_status === 'completed' || user.kyc_status === 'verified') {
                             // User has completed KYC - show submission page
                             router.push('/submission');
                         } else if (user.kyc_step && user.kyc_step !== 'onboarding') {
                             // User has started but not completed - resume from where they left
                             const stepRoutes: Record<string, string> = {
+                                'basic_details': '/basic-details',
                                 'identity_scan': '/scan/poi',
                                 'address_scan': '/scan/poa',
                                 'liveness': '/liveness',
