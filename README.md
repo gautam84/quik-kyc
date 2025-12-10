@@ -149,3 +149,8 @@ To learn more about the technologies used in this project, check out the followi
 - [Prisma Documentation](https://www.prisma.io/docs)
 - [Supabase Documentation](https://supabase.com/docs)
 - [Resend Documentation](https://resend.com/docs)
+
+
+## Note
+
+A presentation has been included in the root directory ("/presentation.pdf") of the project.
