@@ -15,13 +15,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "QuikKYC - Fast & Secure Verification",
   description: "Complete your KYC verification quickly and securely",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 import { Toaster } from "@/components/ui/sonner";

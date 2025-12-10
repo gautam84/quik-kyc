@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -17,7 +17,7 @@ import { DetectedDocument } from '@/lib/edge-detection';
 
 type UploadStep = 'identity' | 'address' | 'complete';
 
-export default function ScanPage() {
+function ScanContent() {
     const router = useRouter();
     const scannerRef = useRef<DocumentScannerRef>(null);
     const fileInputFrontRef = useRef<HTMLInputElement>(null);
@@ -1218,5 +1218,17 @@ export default function ScanPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function ScanPage() {
+    return (
+        <Suspense fallback={
+            <div className="flex items-center justify-center min-h-screen bg-slate-50">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+        }>
+            <ScanContent />
+        </Suspense>
     );
 }
